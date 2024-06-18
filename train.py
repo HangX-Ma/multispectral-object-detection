@@ -915,9 +915,9 @@ def train_rgb_ir(hyp, opt, device, tb_writer=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='yolov5l.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5l_fusion_add_FLIR_aligned.yaml', help='model.yaml path')
-    parser.add_argument('--data', type=str, default='./data/multispectral/FLIR_aligned.yaml', help='data.yaml path')
+    parser.add_argument('--weights', type=str, default='/root/yolov5-weight/yolov5l.pt', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5l_fusion_transformerx3_llvip.yaml', help='model.yaml path')
+    parser.add_argument('--data', type=str, default='./data/multispectral/LLVIP.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
@@ -1004,7 +1004,7 @@ if __name__ == '__main__':
         tb_writer = None  # init loggers
         if opt.global_rank in [-1, 0]:
             prefix = colorstr('tensorboard: ')
-            logger.info(f"{prefix}Start with 'tensorboard --logdir {opt.project}', view at http://localhost:6006/")
+            logger.info(f"{prefix}Start with 'tensorboard --logdir {opt.project} --bind_all', view at http://localhost:6006/")
             tb_writer = SummaryWriter(opt.save_dir)  # Tensorboard
 
             train_rgb_ir(hyp, opt, device, tb_writer)

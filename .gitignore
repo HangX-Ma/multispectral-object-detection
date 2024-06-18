@@ -1,0 +1,6 @@
+.idea
+.vscode
+wandb
+runs
+images
+best.pt

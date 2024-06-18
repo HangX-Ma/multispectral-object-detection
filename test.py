@@ -7,6 +7,7 @@ from threading import Thread
 import numpy as np
 import torch
 import yaml
+from numpy import copy
 from tqdm import tqdm
 
 from models.experimental import attempt_load
@@ -90,6 +91,8 @@ def test(data,
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         val_path_rgb = data['val_rgb']
         val_path_ir = data['val_ir']
+        print(val_path_rgb)
+        print(val_path_ir)
         dataloader = create_dataloader_rgb_ir(val_path_rgb, val_path_ir, imgsz, batch_size, gs, opt, pad=0.5, rect=True,
                                        prefix=colorstr(f'{task}: '))[0]
 
@@ -102,8 +105,8 @@ def test(data,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
-    # for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(testloader, desc=s)):
         img = img.to(device, non_blocking=True)
+        img_origin = img
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
@@ -166,7 +169,7 @@ def test(data,
                                  "scores": {"class_score": conf},
                                  "domain": "pixel"} for *xyxy, conf, cls in pred.tolist()]
                     boxes = {"predictions": {"box_data": box_data, "class_labels": names}}  # inference-space
-                    wandb_images.append(wandb_logger.wandb.Image(img[si], boxes=boxes, caption=path.name))
+                    wandb_images.append(wandb_logger.wandb.Image(img_origin[si], boxes=boxes, caption=path.name))
             wandb_logger.log_training_progress(predn, path, names) if wandb_logger and wandb_logger.wandb_run else None
 
             # Append to pycocotools JSON dictionary
@@ -297,8 +300,8 @@ def test(data,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
-    parser.add_argument('--weights', nargs='+', type=str, default='/home/fqy/proj/multispectral-object-detection/best.pt', help='model.pt path(s)')
-    parser.add_argument('--data', type=str, default='./data/multispectral/FLIR_aligned.yaml', help='*.data path')
+    parser.add_argument('--weights', nargs='+', type=str, default='/root/multispectral-object-detection/best.pt', help='model.pt path(s)')
+    parser.add_argument('--data', type=str, default='./data/multispectral/LLVIP.yaml', help='*.data path')
     parser.add_argument('--batch-size', type=int, default=64, help='size of each image batch')
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.001, help='object confidence threshold')
@@ -356,7 +359,8 @@ if __name__ == '__main__':
             test(opt.data, w, opt.batch_size, opt.img_size, 0.25, 0.45, save_json=False, plots=False, opt=opt)
 
     elif opt.task == 'study':  # run over a range of settings and save/plot
-        # python test.py --task study --data coco.yaml --iou 0.7 --weights yolov5s.pt yolov5m.pt yolov5l.pt yolov5x.pt
+        # python test.py --task study --data coco.yaml --iou-thres 0.7 --weights yolov5s.pt yolov5m.pt yolov5l.pt
+        # yolov5x.pt
         x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
         for w in opt.weights:
             f = f'study_{Path(opt.data).stem}_{Path(w).stem}.txt'  # filename to save to
