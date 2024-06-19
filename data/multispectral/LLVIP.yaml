@@ -7,10 +7,10 @@
 
 
 # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
-train_rgb: /root/LLVIP/visible/train.txt
-train_ir: /root/LLVIP/infrared/train.txt
-val_rgb: /root/LLVIP/visible/test.txt
-val_ir: /root/LLVIP/infrared/test.txt
+train_rgb: /hy-tmp/LLVIP/visible/train.txt
+train_ir: /hy-tmp/LLVIP/infrared/train.txt
+val_rgb: /hy-tmp/LLVIP/visible/test.txt
+val_ir: /hy-tmp/LLVIP/infrared/test.txt
 
 # number of classes
 nc: 1
