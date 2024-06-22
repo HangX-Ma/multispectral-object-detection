@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from utils.general import bbox_iou
+from utils.iou import *
 from utils.torch_utils import is_parallel
 
 
@@ -129,8 +129,18 @@ class ComputeLoss:
                 pxy = ps[:, :2].sigmoid() * 2. - 0.5
                 pwh = (ps[:, 2:4].sigmoid() * 2) ** 2 * anchors[i]
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
-                iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)  # iou(prediction, target)
-                lbox += (1.0 - iou).mean()  # iou loss
+                iou = bbox_iou(pbox, tbox[i], WIoU=True, scale=True)  # iou(prediction, target)
+
+                if isinstance(iou, tuple):
+                    if len(iou) == 2:
+                        lbox += (iou[1].detach().squeeze() * (1 - iou[0].squeeze())).mean()
+                        iou = iou[0].squeeze()
+                    else:
+                        lbox += (iou[0] * iou[1]).mean()
+                        iou = iou[2].squeeze()
+                else:
+                    lbox += (1.0 - iou.squeeze()).mean()  # iou loss
+                    iou = iou.squeeze()
 
                 # Objectness
                 tobj[b, a, gj, gi] = (1.0 - self.gr) + self.gr * iou.detach().clamp(0).type(tobj.dtype)  # iou ratio
