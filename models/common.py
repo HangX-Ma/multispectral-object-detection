@@ -14,7 +14,6 @@ from torch.cuda import amp
 import torch.nn.functional as F
 
 
-from utils.activations import SMU
 from .efficient_kan import KAN
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh, save_one_box
@@ -43,8 +42,7 @@ class Conv(nn.Module):
         # print(c1, c2, k, s,)
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
-        # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
-        self.act = SMU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
     def forward(self, x):
         # print("Conv", x.shape)

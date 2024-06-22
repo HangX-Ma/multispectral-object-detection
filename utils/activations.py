@@ -97,6 +97,7 @@ class MetaAconC(nn.Module):
         dpx = (self.p1 - self.p2) * x
         return dpx * torch.sigmoid(beta * dpx) + self.p2 * x
 
+# NOTE: Waste more GPU menory and cause lower performance
 # SMU https://arxiv.org/pdf/2111.04682
 #     https://github.com/iFe1er/SMU_pytorch
 class SMU(nn.Module):

@@ -1,7 +1,6 @@
 import torch
 import torch.nn.functional as F
 import math
-from utils.activations import SMU
 
 
 class KANLinear(torch.nn.Module):
@@ -15,8 +14,7 @@ class KANLinear(torch.nn.Module):
         scale_base=1.0,
         scale_spline=1.0,
         enable_standalone_scale_spline=True,
-        # base_activation=torch.nn.SiLU,
-        base_activation=SMU,
+        base_activation=torch.nn.SiLU,
         grid_eps=0.02,
         grid_range=[-1, 1],
     ):
@@ -248,8 +246,7 @@ class KAN(torch.nn.Module):
         scale_noise=0.1,
         scale_base=1.0,
         scale_spline=1.0,
-        # base_activation=torch.nn.SiLU,
-        base_activation=SMU,
+        base_activation=torch.nn.SiLU,
         grid_eps=0.02,
         grid_range=[-1, 1],
     ):

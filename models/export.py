@@ -17,7 +17,7 @@ from torch.utils.mobile_optimizer import optimize_for_mobile
 
 import models
 from models.experimental import attempt_load
-from utils.activations import Hardswish, SiLU, SMU
+from utils.activations import Hardswish, SiLU
 from utils.general import colorstr, check_img_size, check_requirements, file_size, set_logging
 from utils.torch_utils import select_device
 
@@ -56,8 +56,6 @@ if __name__ == '__main__':
                 m.act = Hardswish()
             elif isinstance(m.act, nn.SiLU):
                 m.act = SiLU()
-            elif isinstance(m.act, SMU):
-                m.act = SMU()
         # elif isinstance(m, models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
     model.model[-1].export = not opt.grid  # set Detect() layer grid export
