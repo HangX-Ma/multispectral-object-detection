@@ -13,6 +13,9 @@ from PIL import Image
 from torch.cuda import amp
 import torch.nn.functional as F
 
+
+from utils.activations import SMU
+from .efficient_kan import KAN
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh, save_one_box
 from utils.plots import colors, plot_one_box
@@ -40,7 +43,8 @@ class Conv(nn.Module):
         # print(c1, c2, k, s,)
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.act = SMU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
     def forward(self, x):
         # print("Conv", x.shape)
@@ -529,19 +533,22 @@ class myTransformerBlock(nn.Module):
         self.ln_input = nn.LayerNorm(d_model)
         self.ln_output = nn.LayerNorm(d_model)
         self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
-        self.mlp = nn.Sequential(
-            nn.Linear(d_model, block_exp * d_model),
-            # nn.SiLU(),  # changed from GELU
-            nn.GELU(),  # changed from GELU
-            nn.Linear(block_exp * d_model, d_model),
-            nn.Dropout(resid_pdrop),
-        )
+        # self.mlp = nn.Sequential(
+        #     nn.Linear(d_model, block_exp * d_model),
+        #     # nn.SiLU(),  # changed from GELU
+        #     nn.GELU(),  # changed from GELU
+        #     nn.Linear(block_exp * d_model, d_model),
+        #     nn.Dropout(resid_pdrop),
+        # )
+        self.kan = KAN([d_model, 64, d_model])
 
     def forward(self, x):
-        bs, nx, c = x.size()
+        # bs, nx, c = x.size()
+        b, t, d = x.shape
 
         x = x + self.sa(self.ln_input(x))
-        x = x + self.mlp(self.ln_output(x))
+        # x = x + self.mlp(self.ln_output(x))
+        x = x + self.kan(self.ln_output(x).reshape(-1, x.shape[-1])).reshape(b, t, d)
 
         return x
 
