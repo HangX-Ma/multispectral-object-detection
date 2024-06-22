@@ -26,7 +26,7 @@ class Detect(nn.Module):
     stride = None  # strides computed during build
     export = False  # onnx export
 
-    def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
+    def __init__(self, nc=80, anchors=(), ch=(), inplace=True):  # detection layer
         super(Detect, self).__init__()
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
@@ -37,6 +37,7 @@ class Detect(nn.Module):
         self.register_buffer('anchors', a)  # shape(nl,na,2)
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
+        self.inplace = inplace  # use in-place ops (e.g. slice assignment)
 
     def forward(self, x):
         # x = x.copy()  # for profiling
@@ -52,8 +53,13 @@ class Detect(nn.Module):
                     self.grid[i] = self._make_grid(nx, ny).to(x[i].device)
 
                 y = x[i].sigmoid()
-                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i]) * self.stride[i]  # xy
-                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                if self.inplace:
+                    y[..., 0:2] = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy
+                    y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                else:  # for YOLOv5 on AWS Inferentia https://github.com/ultralytics/yolov5/pull/2953
+                    xy = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy
+                    wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                    y = torch.cat((xy, wh, y[..., 4:]), -1)
                 z.append(y.view(bs, -1, self.no))
 
         return x if self.training else (torch.cat(z, 1), x)
@@ -220,18 +226,18 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         for j, a in enumerate(args):
             try:
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
-            except:
+            except NameError:
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP,
-                 C3, C3TR]:
+                 C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
 
             args = [c1, c2, *args[1:]]
-            if m in [BottleneckCSP, C3, C3TR]:
+            if m in [BottleneckCSP, C3, C3TR, VoVGSCSP, VoVGSCSPC]:
                 args.insert(2, n)  # number of repeats
                 n = 1
         elif m is nn.BatchNorm2d:
