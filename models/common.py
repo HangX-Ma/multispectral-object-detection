@@ -723,12 +723,6 @@ class myTransformerBlock(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        self.sa = AgentSelfAttention(
-                dim = d_model,
-                num_agent_tokens = 256,       # number of "agent" tokens
-                dim_head = d_model // h,      # attention head dimension
-                heads = h                     # number of heads
-            )
         # self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
         # self.mlp = nn.Sequential(
         #     nn.Linear(d_model, block_exp * d_model),
@@ -737,6 +731,13 @@ class myTransformerBlock(nn.Module):
         #     nn.Linear(block_exp * d_model, d_model),
         #     nn.Dropout(resid_pdrop),
         # )
+        # TODO(HangX-Ma): My optimization
+        self.sa = AgentSelfAttention(
+                dim = d_model,
+                num_agent_tokens = 256,       # number of "agent" tokens
+                dim_head = d_model // h,      # attention head dimension
+                heads = h                     # number of heads
+            )
         self.kan = KAN([d_model, 64, d_model])
 
     def forward(self, x):
@@ -744,7 +745,8 @@ class myTransformerBlock(nn.Module):
         bs, nx, c = x.shape
 
         x = x + self.sa(self.norm1(x))
-        # x = x + self.mlp(self.ln_output(x))
+        # x = x + self.mlp(self.norm2(x))
+        # TODO(HangX-Ma): My optimization
         x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
 
         return x
