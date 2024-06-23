@@ -255,6 +255,9 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is GPT:
             c2 = ch[f[0]]
             args = [c2]
+        elif m is GPTCross:
+            c2 = ch[f[0]]
+            args = [c2]
         elif m is Concat:
             c2 = sum([ch[x] for x in f])
         elif m is Detect:

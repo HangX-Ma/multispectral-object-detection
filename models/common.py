@@ -603,11 +603,89 @@ class SelfAttention(nn.Module):
 
         return out
 
+class SelfAttentionWithQKV(nn.Module):
+    """
+     Multi-head masked self-attention layer
+    """
+
+    def __init__(self, d_model, d_v, h, attn_pdrop=.1, resid_pdrop=.1):
+        '''
+        :param d_model: Output dimensionality of the model
+        :param h: Number of heads
+        '''
+        super(SelfAttentionWithQKV, self).__init__()
+        assert d_v % h == 0
+        self.d_model = d_model
+        self.d_k = d_model // h
+        self.d_v = d_model // h
+        self.h = h
+
+        # key, query, value projections for all heads
+        self.out_proj = nn.Linear(h * self.d_v, d_model)  # output projection
+
+        # regularization
+        self.attn_drop = nn.Dropout(attn_pdrop)
+        self.resid_drop = nn.Dropout(resid_pdrop)
+
+        self.init_weights()
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                init.normal_(m.weight, std=0.001)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+
+    # x = [x, q, k, v]
+    def forward(self, inval, attention_mask=None, attention_weights=None):
+        '''
+        Computes Self-Attention
+        Args:
+            x (tensor): input (token) dim:(b_s, nx, c),
+                b_s means batch size
+                nx means length, for CNN, equals H*W, i.e. the length of feature maps
+                c means channel, i.e. the channel of feature maps
+            attention_mask: Mask over attention values (b_s, h, nq, nk). True indicates masking.
+            attention_weights: Multiplicative weights for attention values (b_s, h, nq, nk).
+        Return:
+            output (tensor): dim:(b_s, nx, c)
+        '''
+        x, q, k, v = inval[0], inval[1], inval[2], inval[3]
+        b_s, nq = x.shape[:2]
+        nk = x.shape[1]
+
+        # Self-Attention
+        #  :math:`(\text(Attention(Q,K,V) = Softmax((Q*K^T)/\sqrt(d_k))`
+        att = torch.matmul(q, k) / np.sqrt(self.d_k)  # (b_s, h, nq, nk)
+
+        # weight and mask
+        if attention_weights is not None:
+            att = att * attention_weights
+        if attention_mask is not None:
+            att = att.masked_fill(attention_mask, -np.inf)
+
+        # get attention matrix
+        att = torch.softmax(att, -1)
+        att = self.attn_drop(att)
+
+        # output
+        out = torch.matmul(att, v).permute(0, 2, 1, 3).contiguous().view(b_s, nq, self.h * self.d_v)  # (b_s, nq, h*d_v)
+        out = self.resid_drop(self.out_proj(out))  # (b_s, nq, d_model)
+
+        return out
+
 
 class myTransformerBlock(nn.Module):
     """ Transformer block """
 
-    def __init__(self, d_model, d_k, d_v, h, block_exp, attn_pdrop, resid_pdrop):
+    def __init__(self, d_model, d_k, d_v, h, block_exp, attn_pdrop, resid_pdrop, drop_path=0.):
         """
         :param d_model: Output dimensionality of the model
         :param d_k: Dimensionality of queries and keys
@@ -617,8 +695,8 @@ class myTransformerBlock(nn.Module):
 
         """
         super().__init__()
-        self.ln_input = nn.LayerNorm(d_model)
-        self.ln_output = nn.LayerNorm(d_model)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
         self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
         # self.mlp = nn.Sequential(
         #     nn.Linear(d_model, block_exp * d_model),
@@ -631,13 +709,59 @@ class myTransformerBlock(nn.Module):
 
     def forward(self, x):
         # bs, nx, c = x.size()
-        b, t, d = x.shape
+        bs, nx, c = x.shape
 
-        x = x + self.sa(self.ln_input(x))
+        x = x + self.sa(self.norm1(x))
         # x = x + self.mlp(self.ln_output(x))
-        x = x + self.kan(self.ln_output(x).reshape(-1, x.shape[-1])).reshape(b, t, d)
+        x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
 
         return x
+
+class myTransformerBlockWithQKV(nn.Module):
+    """ Transformer block """
+
+    def __init__(self, d_model, d_v, h, block_exp, attn_pdrop, resid_pdrop, drop_path=0.):
+        """
+        :param d_model: Output dimensionality of the model
+        :param d_k: Dimensionality of queries and keys
+        :param d_v: Dimensionality of values
+        :param h: Number of heads
+        :param block_exp: Expansion factor for MLP (feed foreword network)
+
+        """
+        super().__init__()
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.sa = SelfAttentionWithQKV(d_model, d_v, h, attn_pdrop, resid_pdrop)
+        # self.mlp = nn.Sequential(
+        #     nn.Linear(d_model, block_exp * d_model),
+        #     # nn.SiLU(),  # changed from GELU
+        #     nn.GELU(),  # changed from GELU
+        #     nn.Linear(block_exp * d_model, d_model),
+        #     nn.Dropout(resid_pdrop),
+        # )
+        self.kan = KAN([d_model, 64, d_model])
+
+    # x = [x, q, k, v]
+    def forward(self, inval):
+        # if isinstance(inval, dict):
+        #     for key, value in inval.items():
+        #         print(f"key: {key}: ", end = '')
+        #         print(value.shape)
+        # else:
+        #     print(f'not dict {inval.shape}')
+        x, q, k, v = inval[0], inval[1], inval[2], inval[3]
+        # print("forward in my transformerblock: {}".format(x.shape))
+        # bs, nx, c = x.size()
+        bs, nx, c = x.shape
+
+        x = x + self.sa([self.norm1(x), q, k, v])
+        # x = x + self.mlp(self.ln_output(x))
+        x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
+        # print(f"forward output in my tranformerblock {x.shape}")
+        # exit(0)
+        # TODO: 这里的返回值应该是一个字典
+        return [x, q, k, v]
 
 
 class GPT(nn.Module):
@@ -694,6 +818,9 @@ class GPT(nn.Module):
         ir_fea = x[1]   # ir_fea (tensor): dim:(B, C, H, W)
         assert rgb_fea.shape[0] == ir_fea.shape[0]
         bs, c, h, w = rgb_fea.shape
+        # print("bs:{}, c:{}, h:{}, w:{}".format(bs, c, h, w))
+        # print("rgb_fea:{}".format(rgb_fea.shape))
+        # print("ir_fea:{}".format(ir_fea.shape))
 
         # -------------------------------------------------------------------------
         # AvgPooling
@@ -708,8 +835,12 @@ class GPT(nn.Module):
         # pad token embeddings along number of tokens dimension
         rgb_fea_flat = rgb_fea.view(bs, c, -1)  # flatten the feature
         ir_fea_flat = ir_fea.view(bs, c, -1)  # flatten the feature
+        # print("rgb_fea_flat:{}".format(rgb_fea_flat.shape))
+        # print("ir_fea_flat:{}".format(ir_fea_flat.shape))
         token_embeddings = torch.cat([rgb_fea_flat, ir_fea_flat], dim=2)  # concat
+        # print("token_embeddings1:{}".format(token_embeddings.shape))
         token_embeddings = token_embeddings.permute(0, 2, 1).contiguous()  # dim:(B, 2*H*W, C)
+        # print("token_embeddings2:{}".format(token_embeddings.shape))
 
         # transformer
         x = self.drop(self.pos_emb + token_embeddings)  # sum positional embedding and token    dim:(B, 2*H*W, C)
@@ -732,3 +863,134 @@ class GPT(nn.Module):
 
         return rgb_fea_out, ir_fea_out
 
+class GPTCross(nn.Module):
+    """  the full GPT language model, with a context size of block_size """
+
+    def __init__(self, d_model, h=8, block_exp=4,
+                 n_layer=8, vert_anchors=8, horz_anchors=8,
+                 embd_pdrop=0.1, attn_pdrop=0.1, resid_pdrop=0.1):
+        super().__init__()
+
+        self.n_embd = d_model
+        self.vert_anchors = vert_anchors
+        self.horz_anchors = horz_anchors
+
+        self.d_k = d_model // h
+        self.d_v = d_model // h
+        self.h = h
+        self.block_exp = block_exp
+        self.attn_pdrop = attn_pdrop
+        self.resid_pdrop = resid_pdrop
+        self.n_layer = n_layer
+
+        # positional embedding parameter (learnable), rgb_fea + ir_fea
+        self.pos_emb = nn.Parameter(torch.zeros(1, vert_anchors * horz_anchors, self.n_embd))
+
+        # decoder head
+        self.ln_f = nn.LayerNorm(d_model)
+
+        # regularization
+        self.drop = nn.Dropout(embd_pdrop)
+
+        self.que_proj = nn.Linear(self.n_embd, self.h * self.d_k)  # query projection
+        self.key_proj = nn.Linear(self.n_embd, self.h * self.d_k)  # key projection
+        self.val_proj = nn.Linear(self.n_embd, self.h * self.d_v)  # value projection
+
+        self.trans_blocks = nn.Sequential(*[myTransformerBlockWithQKV(d_model, self.d_v, h, block_exp, attn_pdrop, resid_pdrop)
+                                            for layer in range(n_layer)])
+        # print(self.trans_blocks)
+        # exit(0)
+        # avgpool
+        self.avgpool = nn.AdaptiveAvgPool2d((vert_anchors, horz_anchors))
+
+        # init weights
+        self.apply(self._init_weights)
+
+    @staticmethod
+    def _init_weights(module):
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+    def forward(self, x):
+        """
+        Args:
+            x (tuple?)
+
+        """
+        rgb_fea = x[0]  # rgb_fea (tensor): dim:(B, C, H, W)
+        ir_fea = x[1]   # ir_fea (tensor): dim:(B, C, H, W)
+        assert rgb_fea.shape[0] == ir_fea.shape[0]
+        bs, c, h, w = rgb_fea.shape
+        # print("bs:{}, c:{}, h:{}, w:{}".format(bs, c, h, w))
+        # print("rgb_fea:{}".format(rgb_fea.shape))
+        # print("ir_fea:{}".format(ir_fea.shape))
+
+        # -------------------------------------------------------------------------
+        # AvgPooling
+        # -------------------------------------------------------------------------
+        # AvgPooling for reduce the dimension due to expensive computation
+        rgb_fea = self.avgpool(rgb_fea)
+        ir_fea = self.avgpool(ir_fea)
+
+        # -------------------------------------------------------------------------
+        # Transformer
+        # -------------------------------------------------------------------------
+        # pad token embeddings along number of tokens dimension
+        rgb_fea_flat = rgb_fea.view(bs, c, -1)  # flatten the feature
+        ir_fea_flat = ir_fea.view(bs, c, -1)  # flatten the feature
+        # print("rgb_fea_flat:{}".format(rgb_fea_flat.shape))
+        # print("ir_fea_flat:{}".format(ir_fea_flat.shape))
+        rgb_token_embeddings = rgb_fea_flat.permute(0, 2, 1).contiguous()
+        ir_token_embeddings = ir_fea_flat.permute(0, 2, 1).contiguous()
+        # print("rgb_token_embeddings:{}".format(rgb_token_embeddings.shape))
+        # print("ir_token_embeddings:{}".format(ir_token_embeddings.shape))
+
+        # transformer
+        rgb_x = self.drop(self.pos_emb + rgb_token_embeddings)  # sum positional embedding and token    dim:(B, H*W, C)
+        ir_x = self.drop(self.pos_emb + ir_token_embeddings)  # sum positional embedding and token    dim:(B, H*W, C)
+
+        # transformer
+        b_s1, nq1 = rgb_x.shape[:2]
+        nk1 = rgb_x.shape[1]
+
+        rgb_q = self.que_proj(rgb_x).view(b_s1, nq1, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
+        rgb_k = self.key_proj(rgb_x).view(b_s1, nk1, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk) K^T
+        rgb_v = self.val_proj(rgb_x).view(b_s1, nk1, self.h, self.d_v).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)
+
+        b_s2, nq2 = ir_x.shape[:2]
+        nk2 = ir_x.shape[1]
+        ir_q = self.que_proj(ir_x).view(b_s2, nq2, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
+        ir_k = self.key_proj(ir_x).view(b_s2, nk2, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk) K^T
+        ir_v = self.val_proj(ir_x).view(b_s2, nk2, self.h, self.d_v).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)
+
+        # cross modal
+        # print("rgb_shape: {}".format(rgb_x.shape))
+        # TODO: 可以写成 rgb_x = self.trans_block(...)[0], OK
+        rgb_x = self.trans_blocks([rgb_x, rgb_q, ir_k, ir_v])[0]  # dim:(B, H*W, C)
+        # print("ir_shape: {}".format(ir_x.shape))
+        ir_x = self.trans_blocks([ir_x, ir_q, rgb_k, rgb_v])[0]  # dim:(B, H*W, C)
+
+        # decoder head
+        rgb_x = self.ln_f(rgb_x)  # dim:(B, H*W, C)
+        rgb_x = rgb_x.view(bs, self.vert_anchors, self.horz_anchors, self.n_embd)
+        rgb_x = rgb_x.permute(0, 3, 1, 2)  # dim:(B, C, H, W)
+
+        ir_x = self.ln_f(ir_x)  # dim:(B, 2*H*W, C)
+        ir_x = ir_x.view(bs, self.vert_anchors, self.horz_anchors, self.n_embd)
+        ir_x = ir_x.permute(0, 3, 1, 2)  # dim:(B, C, H, W)
+
+        rgb_fea_out = rgb_x.contiguous().view(bs, self.n_embd, self.vert_anchors, self.horz_anchors)
+        ir_fea_out = ir_x.contiguous().view(bs, self.n_embd, self.vert_anchors, self.horz_anchors)
+
+        # -------------------------------------------------------------------------
+        # Interpolate (or Upsample)
+        # -------------------------------------------------------------------------
+        rgb_fea_out = F.interpolate(rgb_fea_out, size=([h, w]), mode='bilinear')
+        ir_fea_out = F.interpolate(ir_fea_out, size=([h, w]), mode='bilinear')
+
+        return rgb_fea_out, ir_fea_out
