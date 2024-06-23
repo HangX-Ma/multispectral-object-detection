@@ -13,7 +13,6 @@ from PIL import Image
 from torch.cuda import amp
 import torch.nn.functional as F
 
-
 from .efficient_kan import KAN
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh, save_one_box
@@ -21,6 +20,7 @@ from utils.plots import colors, plot_one_box
 from utils.torch_utils import time_synchronized
 
 from torch.nn import init, Sequential
+from .agent_attention import AgentSelfAttention
 
 
 def autopad(k, p=None):  # kernel, padding
@@ -723,7 +723,13 @@ class myTransformerBlock(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
+        self.sa = AgentSelfAttention(
+                dim = d_model,
+                num_agent_tokens = 256,       # number of "agent" tokens
+                dim_head = d_model // h,      # attention head dimension
+                heads = h                     # number of heads
+            )
+        # self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
         # self.mlp = nn.Sequential(
         #     nn.Linear(d_model, block_exp * d_model),
         #     # nn.SiLU(),  # changed from GELU
