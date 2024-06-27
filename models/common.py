@@ -1,6 +1,7 @@
 # YOLOv5 common modules
 
 import math
+import random
 from copy import copy
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from utils.torch_utils import time_synchronized
 import warnings
 from torch.nn import init, Sequential
 from .agent_attention import AgentSelfAttention
+from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 from torch.nn import init
 
 
@@ -880,6 +882,7 @@ class SelfAttention(nn.Module):
 
         return out
 
+
 class SelfAttentionWithQKV(nn.Module):
     """
      Multi-head masked self-attention layer
@@ -972,35 +975,37 @@ class myTransformerBlock(nn.Module):
 
         """
         super().__init__()
+        self.attn_pdrop = attn_pdrop
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        # self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
-        # self.mlp = nn.Sequential(
-        #     nn.Linear(d_model, block_exp * d_model),
-        #     # nn.SiLU(),  # changed from GELU
-        #     nn.GELU(),  # changed from GELU
-        #     nn.Linear(block_exp * d_model, d_model),
-        #     nn.Dropout(resid_pdrop),
-        # )
+        self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
+        self.mlp = nn.Sequential(
+            nn.Linear(d_model, block_exp * d_model),
+            # nn.SiLU(),  # changed from GELU
+            nn.GELU(),  # changed from GELU
+            nn.Dropout(resid_pdrop),
+            nn.Linear(block_exp * d_model, d_model),
+            nn.Dropout(resid_pdrop),
+        )
         # TODO(HangX-Ma): My optimization
-        self.sa = AgentSelfAttention(
-                dim = d_model,
-                num_agent_tokens = 256,       # number of "agent" tokens
-                dim_head = d_model // h,      # attention head dimension
-                heads = h                     # number of heads
-            )
-        self.kan = KAN([d_model, 64, d_model])
+        # self.sa = AgentSelfAttention(
+        #         dim = d_model,
+        #         num_agent_tokens = 256,       # number of "agent" tokens
+        #         dim_head = d_model // h,      # attention head dimension
+        #         heads = h                     # number of heads
+        #     )
+        # self.kan = KAN([d_model, 64, d_model])
+        self.dropout = nn.Dropout(drop_path)
 
     def forward(self, x):
         # bs, nx, c = x.size()
         bs, nx, c = x.shape
-
-        x = x + self.sa(self.norm1(x))
-        # x = x + self.mlp(self.norm2(x))
+        x = x + self.dropout(self.sa(self.norm1(x)))
+        x = x + self.dropout(self.mlp(self.norm2(x)))
         # TODO(HangX-Ma): My optimization
-        x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
-
+        # x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
         return x
+
 
 class myTransformerBlockWithQKV(nn.Module):
     """ Transformer block """
@@ -1015,17 +1020,22 @@ class myTransformerBlockWithQKV(nn.Module):
 
         """
         super().__init__()
+        self.h = h
+        self.dim = d_model
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
+        self.attn_pdrop = attn_pdrop
         self.sa = SelfAttentionWithQKV(d_model, d_v, h, attn_pdrop, resid_pdrop)
-        # self.mlp = nn.Sequential(
-        #     nn.Linear(d_model, block_exp * d_model),
-        #     # nn.SiLU(),  # changed from GELU
-        #     nn.GELU(),  # changed from GELU
-        #     nn.Linear(block_exp * d_model, d_model),
-        #     nn.Dropout(resid_pdrop),
-        # )
-        self.kan = KAN([d_model, 64, d_model])
+        self.mlp = nn.Sequential(
+            nn.Linear(d_model, block_exp * d_model),
+            # nn.SiLU(),  # changed from GELU
+            nn.GELU(),  # changed from GELU
+            nn.Dropout(resid_pdrop),
+            nn.Linear(block_exp * d_model, d_model),
+            nn.Dropout(resid_pdrop),
+        )
+        # self.kan = KAN([d_model, 64, d_model])
+        self.dropout = nn.Dropout(drop_path)
 
     # x = [x, q, k, v]
     def forward(self, inval):
@@ -1039,14 +1049,70 @@ class myTransformerBlockWithQKV(nn.Module):
         # print("forward in my transformerblock: {}".format(x.shape))
         # bs, nx, c = x.size()
         bs, nx, c = x.shape
-
-        x = x + self.sa([self.norm1(x), q, k, v])
-        # x = x + self.mlp(self.ln_output(x))
-        x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
-        # print(f"forward output in my tranformerblock {x.shape}")
-        # exit(0)
+        x = x + self.dropout(self.sa([self.norm1(x), q, k, v]))
+        x = x + self.dropout(self.mlp(self.norm2(x)))
+        # x = x + self.kan(self.norm2(x).reshape(-1, x.shape[-1])).reshape(bs, nx, c)
         # TODO: 这里的返回值应该是一个字典
         return [x, q, k, v]
+
+
+class ECA(nn.Module):
+    def __init__(self, kernel_size=3):
+        super(ECA, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+        self.conv = nn.Conv1d(1, 1, kernel_size=kernel_size, padding=(kernel_size - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        bs, c, h, w = x.shape # dim: B, C, H, W
+
+        out = self.avg_pool(x)  # => [b, c, 1, 1]
+        out = out.squeeze(-1).transpose(-1, -2)  # [b, 1, c]
+        out = self.conv(out)
+        out = out.transpose(-1, -2)  # [b, c, 1]
+        out = out.unsqueeze(-1)  # [b, c, 1, 1]
+
+        out = self.sigmoid(out)
+        return x * out.expand_as(x)
+
+
+class SKIPATParametricFunction(nn.Module):
+    def __init__(self, input_dim, output_dim, kernel_size=3):
+        super(SKIPATParametricFunction, self).__init__()
+        # 第一个全连接层 (通道扩展)
+        self.fc1 = nn.Linear(input_dim, output_dim * 2)
+        # 深度卷积层
+        self.dwc = DWConv(input_dim * 2, output_dim * 2)
+        # 第二个全连接层 (通道还原)
+        self.fc2 = nn.Linear(output_dim * 2, output_dim)
+        # ECA模块，用于增强跨通道依赖性
+        self.eca = ECA()
+
+    def forward(self, x):
+        # x的形状为: (b, c, h, w)
+        b, c, h, w = x.shape  # 解包四维张量的形状
+
+        # 展平空间维度 (b, c, h*w)
+        x = x.view(b, c, -1)
+
+        # 通过第一个全连接层扩展通道
+        x = x.permute(0, 2, 1)  # 调整维度顺序以适应全连接层 (b, h*w, c)
+        x = self.fc1(x)
+        x = x.permute(0, 2, 1)  # 恢复维度顺序 (b, 2 * c, h*w)
+
+        # 通过深度卷积层
+        # 调整维度顺序以适配卷积操作 (b, c, h, w)
+        x = x.view(b, 2 * c, h, w)
+        x = self.dwc(x)
+
+        # 通过第二个全连接层还原通道
+        x = x.view(b, 2 * c, -1).permute(0, 2, 1)  # b, h*w, 2*c
+        x = self.fc2(x)  # b, h*w, c
+        x = x.view(b, c, h, w)  # 恢复空间维度
+
+        x = self.eca(x)
+        return x
 
 
 class GPT(nn.Module):
@@ -1064,12 +1130,16 @@ class GPT(nn.Module):
         d_k = d_model
         d_v = d_model
 
+        self.n_layer = n_layer
+
         # positional embedding parameter (learnable), rgb_fea + ir_fea
         self.pos_emb = nn.Parameter(torch.zeros(1, 2 * vert_anchors * horz_anchors, self.n_embd))
 
         # transformer
         self.trans_blocks = nn.Sequential(*[myTransformerBlock(d_model, d_k, d_v, h, block_exp, attn_pdrop, resid_pdrop)
                                             for layer in range(n_layer)])
+        self.trans_block = myTransformerBlock(d_model, d_k, d_v, h, block_exp, attn_pdrop, resid_pdrop)
+        self.skipattn = SKIPATParametricFunction(d_model, d_model)
 
         # decoder head
         self.ln_f = nn.LayerNorm(self.n_embd)
@@ -1129,7 +1199,20 @@ class GPT(nn.Module):
 
         # transformer
         x = self.drop(self.pos_emb + token_embeddings)  # sum positional embedding and token    dim:(B, 2*H*W, C)
-        x = self.trans_blocks(x)  # dim:(B, 2*H*W, C)
+        for i in range(1, self.n_layer + 1):
+            if i % 2 == 0:
+                x = x.view(bs, 2, self.vert_anchors, self.horz_anchors, self.n_embd)
+                x = x.permute(0, 1, 4, 2, 3)  # dim:(B, 2, C, H, W)
+                x1 = x[:, 0, :, :, :].contiguous().view(bs, self.n_embd, self.vert_anchors, self.horz_anchors)
+                x2 = x[:, 1, :, :, :].contiguous().view(bs, self.n_embd, self.vert_anchors, self.horz_anchors)
+                x1 = self.skipattn(x1).view(bs, c, -1)
+                x2 = self.skipattn(x2).view(bs, c, -1)
+                x = torch.cat([x1, x2], dim=2)  # B, C, 2*H*W
+                x = x.permute(0, 2, 1).contiguous()  # B, 2*H*W, C
+            else:
+                x = self.trans_block(x)
+
+        # x = self.trans_blocks(x)  # dim:(B, 2*H*W, C)
 
         # decoder head
         x = self.ln_f(x)  # dim:(B, 2*H*W, C)
@@ -1147,6 +1230,7 @@ class GPT(nn.Module):
         ir_fea_out = F.interpolate(ir_fea_out, size=([h, w]), mode='bilinear')
 
         return rgb_fea_out, ir_fea_out
+
 
 class GPTCross(nn.Module):
     """  the full GPT language model, with a context size of block_size """
@@ -1244,13 +1328,13 @@ class GPTCross(nn.Module):
         nk1 = rgb_x.shape[1]
 
         rgb_q = self.que_proj(rgb_x).view(b_s1, nq1, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
-        rgb_k = self.key_proj(rgb_x).view(b_s1, nk1, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk) K^T
+        rgb_k = self.key_proj(rgb_x).view(b_s1, nk1, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nk, d_k)
         rgb_v = self.val_proj(rgb_x).view(b_s1, nk1, self.h, self.d_v).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)
 
         b_s2, nq2 = ir_x.shape[:2]
         nk2 = ir_x.shape[1]
         ir_q = self.que_proj(ir_x).view(b_s2, nq2, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
-        ir_k = self.key_proj(ir_x).view(b_s2, nk2, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk) K^T
+        ir_k = self.key_proj(ir_x).view(b_s2, nk2, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nk, d_k)
         ir_v = self.val_proj(ir_x).view(b_s2, nk2, self.h, self.d_v).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)
 
         # cross modal
