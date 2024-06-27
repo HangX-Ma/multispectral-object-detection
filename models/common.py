@@ -29,7 +29,7 @@ from torch.nn import init
 
 
 class PConv(nn.Module):
-    def __init__(self, dim, ouc, n_div=4, forward='split_cat'):
+    def __init__(self, dim, ouc, n_div=2, forward='split_cat'):
         super().__init__()
         self.dim_conv3 = dim // n_div
         self.dim_untouched = dim - self.dim_conv3
@@ -1328,13 +1328,13 @@ class GPTCross(nn.Module):
         nk1 = rgb_x.shape[1]
 
         rgb_q = self.que_proj(rgb_x).view(b_s1, nq1, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
-        rgb_k = self.key_proj(rgb_x).view(b_s1, nk1, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nk, d_k)
+        rgb_k = self.key_proj(rgb_x).view(b_s1, nk1, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk)
         rgb_v = self.val_proj(rgb_x).view(b_s1, nk1, self.h, self.d_v).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)
 
         b_s2, nq2 = ir_x.shape[:2]
         nk2 = ir_x.shape[1]
         ir_q = self.que_proj(ir_x).view(b_s2, nq2, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nq, d_k)
-        ir_k = self.key_proj(ir_x).view(b_s2, nk2, self.h, self.d_k).permute(0, 2, 1, 3)  # (b_s, h, nk, d_k)
+        ir_k = self.key_proj(ir_x).view(b_s2, nk2, self.h, self.d_k).permute(0, 2, 3, 1)  # (b_s, h, d_k, nk)
         ir_v = self.val_proj(ir_x).view(b_s2, nk2, self.h, self.d_v).permute(0, 2, 1, 3)  # (b_s, h, nk, d_v)
 
         # cross modal
