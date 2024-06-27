@@ -500,7 +500,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, GhostConv, PConv, SPPCSPC, RepConv, Bottleneck, GhostBottleneck, SPP, DWConv, MixConv2d, Focus,
-                    CrossConv, BottleneckCSP, C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
+                    CrossConv, BottleneckCSP, AKConv, C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
 
             if m is Focus:
                 c1, c2 = 3, args[0]
