@@ -22,6 +22,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import test  # import test.py to get mAP after each epoch
+from models.common import BiFPN_Concat2, BiFPN_Concat3
 from models.experimental import attempt_load
 from models.yolo import Model
 from models.yolo_test import Model
@@ -124,9 +125,17 @@ def train(hyp, opt, device, tb_writer=None):
             pg0.append(v.weight)  # no decay
         elif hasattr(v, 'weight') and isinstance(v.weight, nn.Parameter):
             pg1.append(v.weight)  # apply decay
+        # BiFPN_Concat
+        elif isinstance(v, BiFPN_Concat2) and hasattr(v, 'w') and isinstance(v.w, nn.Parameter):
+            pg1.append(v.w)
+        elif isinstance(v, BiFPN_Concat3) and hasattr(v, 'w') and isinstance(v.w, nn.Parameter):
+            pg1.append(v.w)
 
     if opt.adam:
         optimizer = optim.Adam(pg0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999))  # adjust beta1 to momentum
+    elif opt.adamw:
+        # https://www.paddlepaddle.org.cn/documentation/docs/en/guides/model_convert/convert_from_pytorch/api_difference/optimizer/torch.optim.AdamW.html
+        optimizer = optim.AdamW(pg0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999), amsgrad=True)
     else:
         optimizer = optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
 
@@ -553,9 +562,17 @@ def train_rgb_ir(hyp, opt, device, tb_writer=None):
             pg0.append(v.weight)  # no decay
         elif hasattr(v, 'weight') and isinstance(v.weight, nn.Parameter):
             pg1.append(v.weight)  # apply decay
+        # BiFPN_Concat
+        elif isinstance(v, BiFPN_Concat2) and hasattr(v, 'w') and isinstance(v.w, nn.Parameter):
+            pg1.append(v.w)
+        elif isinstance(v, BiFPN_Concat3) and hasattr(v, 'w') and isinstance(v.w, nn.Parameter):
+            pg1.append(v.w)
 
     if opt.adam:
         optimizer = optim.Adam(pg0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999))  # adjust beta1 to momentum
+    elif opt.adamw:
+        # https://www.paddlepaddle.org.cn/documentation/docs/en/guides/model_convert/convert_from_pytorch/api_difference/optimizer/torch.optim.AdamW.html
+        optimizer = optim.AdamW(pg0, lr=hyp['lr0'], betas=(hyp['momentum'], 0.999), amsgrad=True)
     else:
         optimizer = optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
 
@@ -935,6 +952,7 @@ if __name__ == '__main__':
     parser.add_argument('--multi-scale', action='store_true', help='vary img-size +/- 50%%')
     parser.add_argument('--single-cls', action='store_true', help='train multi-class data as single-class')
     parser.add_argument('--adam', action='store_true', help='use torch.optim.Adam() optimizer')
+    parser.add_argument('--adamw', action='store_true', help='use torch.optim.AdamW() optimizer')
     parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     parser.add_argument('--workers', type=int, default=8, help='maximum number of dataloader workers')
