@@ -27,6 +27,90 @@ from .agent_attention import AgentSelfAttention
 from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 from torch.nn import init
 from einops import rearrange
+from linear_attention_transformer import LinearAttentionTransformer
+
+
+class ChannelAttentionModule(nn.Module):
+    def __init__(self, c1, reduction=16):
+        super(ChannelAttentionModule, self).__init__()
+        mid_channel = c1 // reduction
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.shared_MLP = nn.Sequential(
+            nn.Linear(in_features=c1, out_features=mid_channel),
+            nn.ReLU(),
+            nn.Linear(in_features=mid_channel, out_features=c1)
+        )
+        self.sigmoid = nn.Sigmoid()
+        # self.act=SiLU()
+
+    def forward(self, x):
+        avgout = self.shared_MLP(self.avg_pool(x).view(x.size(0), -1)).unsqueeze(2).unsqueeze(3)
+        maxout = self.shared_MLP(self.max_pool(x).view(x.size(0), -1)).unsqueeze(2).unsqueeze(3)
+        return self.sigmoid(avgout + maxout)
+
+
+class SpatialAttentionModule(nn.Module):
+    def __init__(self):
+        super(SpatialAttentionModule, self).__init__()
+        self.conv2d = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=7, stride=1, padding=3)
+        # self.act=SiLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avgout = torch.mean(x, dim=1, keepdim=True)
+        maxout, _ = torch.max(x, dim=1, keepdim=True)
+        out = torch.cat([avgout, maxout], dim=1)
+        out = self.sigmoid(self.conv2d(out))
+        return out
+
+
+class CBAM(nn.Module):
+    def __init__(self, c1, c2):
+        super(CBAM, self).__init__()
+        self.channel_attention = ChannelAttentionModule(c1)
+        self.spatial_attention = SpatialAttentionModule()
+
+    def forward(self, x):
+        out = self.channel_attention(x) * x
+        out = self.spatial_attention(out) * out
+        return out
+
+# https://blog.csdn.net/m0_56247038/article/details/124891449?spm=1001.2101.3001.6650.1&utm_medium=distribute.pc_relevant.none-task-blog-2~default~CTRLIST~Rate-1-124891449-blog-128755822.pc_relevant_3mothn_strategy_recovery&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2~default~CTRLIST~Rate-1-124891449-blog-128755822.pc_relevant_3mothn_strategy_recovery&utm_relevant_index=2# 结合BiFPN 设置可学习参数 学习不同分支的权重
+# 结合BiFPN 设置可学习参数 学习不同分支的权重
+# 两个分支concat操作
+class BiFPN_Concat2(nn.Module):
+    def __init__(self, dimension=1):
+        super(BiFPN_Concat2, self).__init__()
+        self.d = dimension
+        self.w = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
+        self.epsilon = 0.0001
+
+    def forward(self, x):
+        w = self.w
+        weight = w / (torch.sum(w, dim=0) + self.epsilon)  # 将权重进行归一化
+        # Fast normalized fusion
+        x = [weight[0] * x[0], weight[1] * x[1]]
+        return torch.cat(x, self.d)
+
+
+# 三个分支concat操作
+class BiFPN_Concat3(nn.Module):
+    def __init__(self, dimension=1):
+        super(BiFPN_Concat3, self).__init__()
+        self.d = dimension
+        # 设置可学习参数 nn.Parameter的作用是：将一个不可训练的类型Tensor转换成可以训练的类型parameter
+        # 并且会向宿主模型注册该参数 成为其一部分 即model.parameters()会包含这个parameter
+        # 从而在参数优化的时候可以自动一起优化
+        self.w = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
+        self.epsilon = 0.0001
+
+    def forward(self, x):
+        w = self.w
+        weight = w / (torch.sum(w, dim=0) + self.epsilon)  # 将权重进行归一化
+        # Fast normalized fusion
+        x = [weight[0] * x[0], weight[1] * x[1], weight[2] * x[2]]
+        return torch.cat(x, self.d)
 
 
 class AKConv(nn.Module):
@@ -1117,7 +1201,7 @@ class myTransformerBlock(nn.Module):
         self.attn_pdrop = attn_pdrop
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
+        # self.sa = SelfAttention(d_model, d_k, d_v, h, attn_pdrop, resid_pdrop)
         self.mlp = nn.Sequential(
             nn.Linear(d_model, block_exp * d_model),
             # nn.SiLU(),  # changed from GELU
@@ -1127,12 +1211,12 @@ class myTransformerBlock(nn.Module):
             nn.Dropout(resid_pdrop),
         )
         # TODO(HangX-Ma): My optimization
-        # self.sa = AgentSelfAttention(
-        #         dim = d_model,
-        #         num_agent_tokens = 256,       # number of "agent" tokens
-        #         dim_head = d_model // h,      # attention head dimension
-        #         heads = h                     # number of heads
-        #     )
+        self.sa = AgentSelfAttention(
+                dim = d_model,
+                num_agent_tokens = 256,       # number of "agent" tokens
+                dim_head = d_model // h,      # attention head dimension
+                heads = h                     # number of heads
+            )
         # self.kan = KAN([d_model, 64, d_model])
         self.dropout = nn.Dropout(drop_path)
 
@@ -1278,6 +1362,13 @@ class GPT(nn.Module):
         self.trans_blocks = nn.Sequential(*[myTransformerBlock(d_model, d_k, d_v, h, block_exp, attn_pdrop, resid_pdrop)
                                             for layer in range(n_layer)])
         self.trans_block = myTransformerBlock(d_model, d_k, d_v, h, block_exp, attn_pdrop, resid_pdrop)
+        # self.trans_block = LinearAttentionTransformer(
+        #     dim=d_model,
+        #     heads=h,
+        #     depth=1,
+        #     max_seq_len=512,
+        #     n_local_attn_heads=h//2
+        # ).cuda()
         self.skipattn = SKIPATParametricFunction(d_model, d_model)
 
         # decoder head
@@ -1339,7 +1430,7 @@ class GPT(nn.Module):
         # transformer
         x = self.drop(self.pos_emb + token_embeddings)  # sum positional embedding and token    dim:(B, 2*H*W, C)
         for i in range(1, self.n_layer + 1):
-            if i % 2 == 0:
+            if i % 3 == 0:
                 x = x.view(bs, 2, self.vert_anchors, self.horz_anchors, self.n_embd)
                 x = x.permute(0, 1, 4, 2, 3)  # dim:(B, 2, C, H, W)
                 x1 = x[:, 0, :, :, :].contiguous().view(bs, self.n_embd, self.vert_anchors, self.horz_anchors)
@@ -1406,6 +1497,8 @@ class GPTCross(nn.Module):
 
         self.trans_blocks = nn.Sequential(*[myTransformerBlockWithQKV(d_model, self.d_v, h, block_exp, attn_pdrop, resid_pdrop)
                                             for layer in range(n_layer)])
+        self.trans_block = myTransformerBlockWithQKV(d_model, self.d_v, h, block_exp, attn_pdrop, resid_pdrop)
+        self.skipattn = SKIPATParametricFunction(d_model, d_model)
         # print(self.trans_blocks)
         # exit(0)
         # avgpool
@@ -1482,6 +1575,23 @@ class GPTCross(nn.Module):
         rgb_x = self.trans_blocks([rgb_x, rgb_q, ir_k, ir_v])[0]  # dim:(B, H*W, C)
         # print("ir_shape: {}".format(ir_x.shape))
         ir_x = self.trans_blocks([ir_x, ir_q, rgb_k, rgb_v])[0]  # dim:(B, H*W, C)
+
+        # for i in range(1, self.n_layer + 1):
+        #     if i % 4 == 0:
+        #         rgb_x = rgb_x.view(bs, self.vert_anchors, self.horz_anchors, self.n_embd)
+        #         rgb_x = rgb_x.permute(0, 3, 1, 2)  # dim:(B, C, H, W)
+        #
+        #         ir_x = ir_x.view(bs, self.vert_anchors, self.horz_anchors, self.n_embd)
+        #         ir_x = ir_x.permute(0, 3, 1, 2)  # dim:(B, C, H, W)
+        #
+        #         rgb_x = self.skipattn(rgb_x).view(bs, c, -1)
+        #         ir_x = self.skipattn(ir_x).view(bs, c, -1)
+        #
+        #         rgb_x = rgb_x.permute(0, 2, 1).contiguous()  # B, H*W, C
+        #         ir_x = ir_x.permute(0, 2, 1).contiguous()  # B, H*W, C
+        #     else:
+        #         rgb_x = self.trans_block([rgb_x, rgb_q, ir_k, ir_v])[0]  # dim:(B, H*W, C)
+        #         ir_x = self.trans_block([ir_x, ir_q, rgb_k, rgb_v])[0]  # dim:(B, H*W, C)
 
         # decoder head
         rgb_x = self.ln_f(rgb_x)  # dim:(B, H*W, C)
