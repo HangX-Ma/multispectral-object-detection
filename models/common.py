@@ -24,10 +24,8 @@ from utils.torch_utils import time_synchronized
 import warnings
 from torch.nn import init, Sequential
 from .agent_attention import AgentSelfAttention
-from flash_attn import flash_attn_qkvpacked_func, flash_attn_func
 from torch.nn import init
 from einops import rearrange
-from linear_attention_transformer import LinearAttentionTransformer
 
 
 class ChannelAttentionModule(nn.Module):

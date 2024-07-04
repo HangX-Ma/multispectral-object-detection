@@ -131,7 +131,7 @@ class ComputeLoss:
                 pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 # Focal-WIoU better than Focal-EIoU, WIoU, CIoU and can not use Focal-SIoU, AlphaIoU
                 # iou = bbox_iou(pbox, tbox[i], WIoU=True, scale=True, Focal=True)  # iou(prediction, target)
-                iou = bbox_iou(pbox, tbox[i], WIoU=True, Focal=3)  # iou(prediction, target)
+                iou = bbox_iou(pbox, tbox[i], WIoU=True, scale=True, monotonous=False)  # iou(prediction, target)
 
                 if isinstance(iou, tuple):
                     if len(iou) == 2:
