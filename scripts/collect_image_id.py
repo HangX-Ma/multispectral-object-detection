@@ -3,7 +3,7 @@
 import os
 import argparse
 
-base_img_path = str("/root/LLVIP/")
+base_img_path = str("/hy-tmp/visdrone/")
 parser = argparse.ArgumentParser()
 parser.add_argument('--set_name', default="", type=str, help='image set name')
 opt = parser.parse_args()
