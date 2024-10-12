@@ -3,5 +3,5 @@
 wandb
 runs
 images
-best.pt
+*best*
 **/__pycache__

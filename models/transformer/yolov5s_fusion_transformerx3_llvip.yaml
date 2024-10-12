@@ -106,11 +106,11 @@ head:
    [-1, 3, VoVGSCSP, [256, False]],             # 39 (P3/8-small)
 
    [-1, 1, Conv, [256, 3, 2]],                  # 40
-   [[-1, 35, 30], 1, BiFPN_Concat3, [1]],       # 41 cat head P4 <--- BiFPN change
+   [[-1, 36, 30], 1, BiFPN_Concat3, [1]],       # 41 cat head P4 <--- BiFPN change
    [-1, 3, VoVGSCSP, [512, False]],             # 42 (P4/16-medium)
 
    [-1, 1, Conv, [512, 3, 2]],                  # 43
-   [[-1, 31], 1, BiFPN_Concat2, [1]],           # 44 cat head P5 <--- BiFPN change
+   [[-1, 32], 1, BiFPN_Concat2, [1]],           # 44 cat head P5 <--- BiFPN change
    [-1, 3, VoVGSCSP, [1024, False]],            # 45 (P5/32-large)
 
    [39, 1, RepConv, [256, 3, 1]],               # 46-P3
