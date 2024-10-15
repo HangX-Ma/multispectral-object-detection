@@ -24,7 +24,6 @@ from utils.torch_utils import time_synchronized
 import warnings
 from torch.nn import init, Sequential
 from .agent_attention import AgentSelfAttention
-from torch.nn import init
 from einops import rearrange
 
 
@@ -696,6 +695,111 @@ class CrossConv(nn.Module):
     def forward(self, x):
         """Performs feature sampling, expanding, and applies shortcut if channels match; expects `x` input tensor."""
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+# transition layer
+class ConvBnAct(nn.Module):
+
+    def __init__(self,
+                 n_in, # Input Channels
+                 n_out, # Output Channels
+                 kernel_size = 3,
+                 stride = 1,
+                 padding = 0,
+                 groups = 1,
+                 bn = True, # Batch Norm
+                 act = True, # Activation
+                 bias = False
+                ):
+
+        super(ConvBnAct, self).__init__()
+
+        self.conv = nn.Conv2d(in_channels=n_in,
+                              out_channels=n_out,
+                              kernel_size=kernel_size,
+                              stride=stride,
+                              padding=padding,
+                              groups=groups,
+                              bias= bias
+                             )
+        self.batch_norm = nn.BatchNorm2d(num_features=n_out) if bn else nn.Identity()
+        self.activation = nn.LeakyReLU() if act else nn.Identity()
+
+    def forward(self, x):
+
+        x = self.conv(x)
+        x = self.batch_norm(x)
+        x = self.activation(x)
+
+        return x
+
+# concat c1 and c2 with transition layer, c1 channels are twice c2 ones
+# so we need to use transition layer to expand c2 channels
+class CT2(nn.Module):
+    def __init__(self, c1, index):
+
+        super(CT2, self).__init__()
+
+        # print("CT2 out_ch: ", c1)
+
+        self.index = index
+        self.transition_first = ConvBnAct(
+            c1 // 2,
+            c1,
+            kernel_size=3,
+            stride=2,
+            padding=1,
+            groups=1,
+            bn=True,
+            act=True
+        )
+
+        self.transition_last = ConvBnAct(
+            c1,
+            c1,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            groups=1,
+            bn=True,
+            act=True
+        )
+
+    def forward(self, x):
+        # print(x[0].shape)
+        if self.index == 0:
+            # print(x[1][0].shape)
+            out = torch.add(x[0], self.transition_first(x[1][0]))
+            out = self.transition_last(out)
+            return out
+        elif self.index == 1:
+            # print(x[1][0].shape)
+            out = torch.add(x[0], self.transition_first(x[1][1]))
+            out = self.transition_last(out)
+            return out
+
+# https://github.com/ultralytics/ultralytics/blob/15e6133534d82ec6845308f1e258d77c1b9bab36/ultralytics/nn/modules/block.py#L224-L245
+class C2f(nn.Module):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        """Initializes a CSP bottleneck with 2 convolutions and n Bottleneck blocks for faster processing."""
+        super().__init__()
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+
+    def forward(self, x):
+        """Forward pass through C2f layer."""
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+        """Forward pass using split() instead of chunk()."""
+        y = list(self.cv1(x).split((self.c, self.c), 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
 
 
 class C3(nn.Module):

@@ -49,7 +49,8 @@ def detect(opt):
     # Set Dataloader
     vid_path, vid_writer = None, None
     if webcam:
-        view_img = check_imshow()
+        print("Start live stream loading ...")
+        # view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source1, img_size=imgsz, stride=stride)
     else:
