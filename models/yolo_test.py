@@ -498,8 +498,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [Conv, GhostConv, PConv, SPPCSPC, RepConv, Bottleneck, GhostBottleneck, SPP, DWConv, MixConv2d, Focus,
-                    CrossConv, BottleneckCSP, AKConv, CBAM, C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
+        if m in [Conv, GhostConv, PConv, SPP, SPPF, SPPCSPC, RepConv, Bottleneck, GhostBottleneck, DWConv, MixConv2d, Focus,
+                    CrossConv, BottleneckCSP, AKConv, CBAM, C2f, C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
 
             if m is Focus:
                 c1, c2 = 3, args[0]
@@ -513,7 +513,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                     c2 = make_divisible(c2 * gw, 8)
 
                 args = [c1, c2, *args[1:]]
-                if m in [BottleneckCSP, C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
+                if m in [BottleneckCSP, C2f, C3, C3TR, GSConv, VoVGSCSP, VoVGSCSPC]:
                     args.insert(2, n)  # number of repeats
                     n = 1
 
