@@ -5,7 +5,8 @@ import argparse
 
 from numpy.core.defchararray import isspace
 
-classes = ["person", "bicycle", "car"]  # change to your classes
+sets = ['train', 'val', 'test']
+classes = ["car", "truck", "bus", "van", "freight car"]  # change to your classes
 
 
 def convert(size, box):
@@ -22,9 +23,9 @@ def convert(size, box):
     return x, y, w, h
 
 
-def convert_annotation(filename, xmlpath, txtpath):
-    in_file = open(xmlpath + '/%s.xml' % filename, encoding='UTF-8')
-    out_file = open(txtpath + '/%s.txt' % filename, 'w')
+def convert_annotation(_image_id, _img_set_name):
+    in_file = open('/hy-tmp/visdrone/Annotations/%s.xml' % _image_id, encoding='UTF-8')
+    out_file = open('/hy-tmp/visdrone/' + _img_set_name + '/' + ('labels/%s.txt' % _image_id), 'w')
     tree = ET.parse(in_file)
     root = tree.getroot()
     size = root.find('size')
@@ -51,20 +52,25 @@ def convert_annotation(filename, xmlpath, txtpath):
         out_file.write(str(cls_id) + " " + " ".join([str(a) for a in bb]) + '\n')
 
 
+base_img_path = str("/hy-tmp/visdrone/")
 parser = argparse.ArgumentParser()
-parser.add_argument('--xml_path', default='Annotations', type=str, help='input xml label path')
-parser.add_argument('--txt_path', default='AnnotationsYolo', type=str, help='output txt label path')
+parser.add_argument('--set_name', default='', type=str, help='image set name')
 opt = parser.parse_args()
 
-xmlfile_path = opt.xml_path
-txtfile_path = opt.txt_path
-
-if not xmlfile_path or not os.path.exists(xmlfile_path):
+# check input arguments
+img_set_name = opt.set_name
+img_set_path = base_img_path + img_set_name
+if not opt.set_name or not os.path.exists(img_set_path):
     raise NotADirectoryError
 
-if not os.path.exists(txtfile_path):
-    os.makedirs(txtfile_path)
+for set_type in sets:
+    if not os.path.exists(img_set_path + '/labels/'):
+        os.makedirs(img_set_path + '/labels/')
 
-for xmlfile in os.listdir(xmlfile_path):
-    filename, ext = os.path.splitext(xmlfile)
-    convert_annotation(filename, xmlfile_path, txtfile_path)
+    image_ids = open(img_set_path + ('/%s_id.txt' % set_type)).read().strip().split()
+    list_file = open(img_set_path + ('/%s.txt' % set_type), 'w')
+
+    for image_id in image_ids:
+        list_file.write(img_set_path + ("/images/%s.jpg\n" % image_id))
+        convert_annotation(image_id, img_set_name)
+    list_file.close()
