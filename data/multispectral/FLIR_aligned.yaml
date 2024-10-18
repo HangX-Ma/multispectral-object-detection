@@ -19,4 +19,4 @@ val_ir: /hy-tmp/align/infrared/val.txt
 nc: 3
 
 # class names
-names: [ 'person','car','bicycle']
+names: [ 'person', 'bicycle', 'car']
