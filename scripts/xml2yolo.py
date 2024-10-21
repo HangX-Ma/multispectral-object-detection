@@ -49,6 +49,9 @@ def convert_annotation(filename, xmlpath, txtpath):
         b = (b1, b2, b3, b4)
         bb = convert((w, h), b)
         out_file.write(str(cls_id) + " " + " ".join([str(a) for a in bb]) + '\n')
+    
+    in_file.close()
+    out_file.close()
 
 
 parser = argparse.ArgumentParser()
