@@ -1,11 +1,11 @@
 # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
-train_rgb: /hy-tmp/visdrone/visible/train.txt
-train_ir: /hy-tmp/visdrone/infrared/train.txt
-val_rgb: /hy-tmp/visdrone/visible/test.txt
-val_ir: /hy-tmp/visdrone/infrared/test.txt
+train_rgb: /hy-tmp/DroneVehicle/visible/train/train.txt
+val_rgb: /hy-tmp/DroneVehicle/visible/val/val.txt
+train_ir: /hy-tmp/DroneVehicle/infrared/train/train.txt
+val_ir: /hy-tmp/DroneVehicle/infrared/val/val.txt
 
 # number of classes
 nc: 5
 
 # class names
-names: ["car", "truck", "bus", "van", "freight car"]
+names: ["car", "truck", "bus", "van", "feright car"]

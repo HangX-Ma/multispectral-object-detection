@@ -19,17 +19,8 @@ size = [512, 512]  # [w, h]
 
 classdict = {
     1: 0, # car
-    2: 1, # truck
-    4: 2, # tractor
-    5: 3, # camping car
-    7: 4, # motorcycle
-    8: 5, # bus
-    9: 6, # van
-    10: 7, # other
-    11: 8, # pickup
-    12: 9, # large
-    23: 10, # boat
-    31: 11, # plane
+    5: 1, # camping car
+    11: 2, # pickup
 }
 
 
@@ -140,7 +131,7 @@ def convert(fields):
     w = w * dw
     h = h * dh
 
-    return x, y, w, h
+    return x, y, h, w
 
 
 def vedai2yolo(filename, annotpath, yolopath, count):
@@ -157,9 +148,11 @@ def vedai2yolo(filename, annotpath, yolopath, count):
         # Convert fields to appropriate data types if needed
         fields = [float(field) if "." in field else int(field) for field in fields]
 
-        clsid = classdict[int(fields[3])]
-        bbox = convert(fields)
-        outfile.write(str(clsid) + " " + " ".join([str(val) for val in bbox]) + "\n")
+        oid = int(fields[3])
+        if oid in classdict.keys():
+            clsid = classdict[oid]
+            bbox = convert(fields)
+            outfile.write(str(clsid) + " " + " ".join([str(val) for val in bbox]) + "\n")
 
     infile.close()
     outfile.close()

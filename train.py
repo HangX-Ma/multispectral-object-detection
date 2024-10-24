@@ -936,14 +936,15 @@ def train_rgb_ir(hyp, opt, device, tb_writer=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='/hy-tmp/yolov5-weight/yolov5s.pt', help='initial weights path')
-    # VEDAI
-    parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5s_fusion_transformerx2_vedai.yaml', help='model.yaml path')
-    parser.add_argument('--data', type=str, default='./data/multispectral/VEDAI.yaml', help='data.yaml path')
-    # FLIR
+    # NOTE: VEDAI
+    # parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5s_fusion_transformerx2_vedai.yaml', help='model.yaml path')
+    # parser.add_argument('--data', type=str, default='./data/multispectral/VEDAI.yaml', help='data.yaml path')
+    # NOTE: FLIR
     # parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5s_fusion_transformerx2_FLIR_aligned.yaml', help='model.yaml path')
     # parser.add_argument('--data', type=str, default='./data/multispectral/FLIR_aligned.yaml', help='data.yaml path')
-    # parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5s_fusion_transformerx3_dv.yaml', help='model.yaml path')
-    # parser.add_argument('--data', type=str, default='./data/multispectral/DroneVehicle.yaml', help='data.yaml path')
+    # NOTE: DroneVehicle
+    parser.add_argument('--cfg', type=str, default='./models/transformer/yolov5s_fusion_transformerx2_drone_vehicle.yaml', help='model.yaml path')
+    parser.add_argument('--data', type=str, default='./data/multispectral/DroneVehicle.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')

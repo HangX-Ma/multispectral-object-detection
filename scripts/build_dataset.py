@@ -101,8 +101,8 @@ if __name__ == "__main__":
 
     # rgb_path = "/hy-tmp/align/visible"
     # ir_path = "/hy-tmp/align/infrared"
-    rgb_path = "/hy-tmp/VEDAI/visible"
-    ir_path = "/hy-tmp/VEDAI/infrared"
+    rgb_path = "/hy-tmp/DroneVehicle/visible"
+    ir_path = "/hy-tmp/DroneVehicle/infrared"
 
     print("###### START BUILDING DATASET ######")
     print("RGB root path: %s" % rgb_path)

@@ -532,7 +532,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             c2 = ch[f[0]]
             # print("Add2 arg", args[0])
             args = [c2, args[1]]
-        elif m is CT2:
+        elif m in [CT2, CT4]:
             # print("ch[f]", f, ch[f[0]])
             c2 = ch[f[0]]
             # print("CT2 arg[0] {}, args[1] {}".format(args[0], args[1]))

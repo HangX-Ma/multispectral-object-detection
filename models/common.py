@@ -793,6 +793,51 @@ class CT2(nn.Module):
             out = self.transition_last(out)
             return out
 
+# concat c1 and c2 with transition layer, c1 channels are twice c2 ones
+# so we need to use transition layer to expand c2 channels
+class CT4(nn.Module):
+    def __init__(self, c1, index):
+
+        super(CT4, self).__init__()
+
+        # print("CT4 out_ch: ", c1)
+
+        self.index = index
+        self.transition_first = ConvBnAct(
+            c1 // 4,
+            c1,
+            kernel_size=3,
+            stride=4,
+            padding=1,
+            groups=1,
+            bn=True,
+            act=True
+        )
+
+        self.transition_last = ConvBnAct(
+            c1,
+            c1,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            groups=1,
+            bn=True,
+            act=True
+        )
+
+    def forward(self, x):
+        # print(x[0].shape)
+        if self.index == 0:
+            # print(x[1][0].shape)
+            out = torch.add(x[0], self.transition_first(x[1][0]))
+            out = self.transition_last(out)
+            return out
+        elif self.index == 1:
+            # print(x[1][0].shape)
+            out = torch.add(x[0], self.transition_first(x[1][1]))
+            out = self.transition_last(out)
+            return out
+
 # https://github.com/ultralytics/ultralytics/blob/15e6133534d82ec6845308f1e258d77c1b9bab36/ultralytics/nn/modules/block.py#L224-L245
 class C2f(nn.Module):
     """Faster Implementation of CSP Bottleneck with 2 convolutions."""

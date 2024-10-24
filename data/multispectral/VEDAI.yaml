@@ -15,21 +15,12 @@ val_rgb: /hy-tmp/VEDAI/visible/val.txt
 val_ir: /hy-tmp/VEDAI/infrared/val.txt
 
 # number of classes
-nc: 12
+nc: 3
 
 # class names
 names:
   [
     "car",
-    "truck",
-    "tractor",
     "camping car",
-    "motorcycle",
-    "bus",
-    "van",
-    "other",
     "pickup",
-    "large",
-    "boat",
-    "plane",
   ]
